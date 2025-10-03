@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simple Code Analyzer (JavaScript)</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <style>
+    :root{
+      --bg:#0f172a; /* slate-900 */
+      --panel:#111827; /* gray-900 */
+      --muted:#94a3b8; /* slate-400 */
+      --text:#e5e7eb; /* gray-200 */
+      --accent:#22d3ee; /* cyan-400 */
+      --ok:#10b981; /* emerald-500 */
+      --warn:#f59e0b; /* amber-500 */
+      --err:#ef4444; /* red-500 */
+      --card:#0b1220;
+      --border:#1f2937;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial;
+      background:linear-gradient(180deg,#0b1220 0%, #0f172a 100%);color:var(--text)}
+    .container{max-width:1100px;margin:40px auto;padding:0 16px}
+    .header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+    .logo{width:40px;height:40px;border-radius:12px;background:radial-gradient(circle at 30% 30%, #22d3ee, #6366f1);box-shadow:0 10px 30px rgba(34,211,238,.3)}
+    h1{font-size:1.6rem;margin:0}
+    .sub{color:var(--muted);font-size:.95rem}
+
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+    .row{display:grid;grid-template-columns:1fr;gap:16px}
+    @media (min-width: 980px){.row{grid-template-columns:1fr 1fr}}
+
+    .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:14px;border-bottom:1px solid var(--border)}
+    select, button{background:#0b1324;color:var(--text);border:1px solid var(--border);padding:10px 12px;border-radius:12px;font-weight:600}
+    button.primary{background:linear-gradient(135deg,#22d3ee, #6366f1);border:none;color:#021522}
+    button.ghost{background:transparent}
+    button:disabled{opacity:.5}
+    textarea{width:100%;min-height:420px;background:#0a1020;color:#e2e8f0;border:1px solid var(--border);border-radius:14px;padding:14px;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;font-size:14px;line-height:1.5;}
+
+    .results{padding:14px;max-height:520px;overflow:auto}
+    .pill{display:inline-flex;align-items:center;gap:8px;font-size:.8rem;border-radius:999px;padding:6px 10px;border:1px solid var(--border);}
+    .pill.ok{color:var(--ok);border-color:rgba(16,185,129,.35)}
+    .pill.warn{color:var(--warn);border-color:rgba(245,158,11,.35)}
+    .pill.err{color:var(--err);border-color:rgba(239,68,68,.35)}
+    .issue{border:1px solid var(--border);border-left:4px solid var(--warn);padding:12px;border-radius:12px;background:#0b1324;margin:10px 0}
+    .issue.error{border-left-color:var(--err)}
+    .issue .title{font-weight:700;margin-bottom:6px}
+    .issue .loc{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;color:#93c5fd}
+    .issue .code{white-space:pre-wrap;background:#0a1020;border:1px solid var(--border);border-radius:10px;padding:8px;margin-top:6px}
+    .muted{color:var(--muted)}
+    .footer{color:var(--muted);font-size:.85rem;margin-top:10px}
+  </style>
+  <!-- JSHint in the browser -->
+  <script src="https://cdn.jsdelivr.net/npm/jshint@2.13.6/dist/jshint.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo"></div>
+      <div>
+        <h1>Simple Code Analyzer</h1>
+        <div class="sub">One-page tool — paste <strong>JavaScript</strong> code, click Analyze, get <em>errors & suggestions</em>.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="controls">
+        <select id="preset">
+          <option value="default">ES2021 (Browser/Node)</option>
+          <option value="browser">Browser only</option>
+          <option value="node">Node.js</option>
+          <option value="react">React (JSX allowed)</option>
+          <option value="strict">Strict style</option>
+        </select>
+        <button class="primary" id="analyzeBtn">Analyze Code</button>
+        <button class="ghost" id="downloadBtn" title="Download a text report">Download Report</button>
+        <span class="pill ok" id="statusPill" style="display:none">No issues found</span>
+      </div>
+      <div class="row">
+        <div style="padding:14px">
+          <textarea id="code" placeholder="// Paste your JavaScript here\nfunction add(a,b){\n  return a + b\n}\nconsole.log(add(2,3))\n"></textarea>
+        </div>
+        <div class="results" id="results">
+          <div class="muted">Results will appear here after analysis. We show line/column, a short description, the related code, and a suggestion to fix it.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">Tip: For best results, select the right preset (React for JSX, Node for backend scripts). This runs entirely in your browser.</div>
+  </div>
+
+<script>
+  const codeEl = document.getElementById('code');
+  const resultsEl = document.getElementById('results');
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const statusPill = document.getElementById('statusPill');
+  const presetEl = document.getElementById('preset');
+
+  function getOptions(preset){
+    // Base options
+    const base = {
+      esversion: 11,        // ES2020+
+      asi: false,           // Missing semicolons => warn
+      undef: true,          // Detect undefined variables
+      unused: true,         // Detect unused variables
+      eqeqeq: true,         // Prefer ===
+      node: true,
+      browser: true,
+      curly: true,
+      freeze: true,
+      futurehostile: true,
+      latedef: 'nofunc',
+      noyield: true,
+      varstmt: false
+    };
+
+    if(preset === 'browser'){
+      return { ...base, node:false, browser:true };
+    }
+    if(preset === 'node'){
+      return { ...base, browser:false, node:true, globals:{ module:true, require:true, process:true, __dirname:true } };
+    }
+    if(preset === 'react'){
+      // Allow JSX heuristically (JSHint doesn't parse JSX, but we relax some rules)
+      return { ...base, browser:true, mootools:false, asi:true, esversion: 11 };
+    }
+    if(preset === 'strict'){
+      return { ...base, maxcomplexity: 8, maxparams: 4, maxdepth: 3, eqnull: false };
+    }
+    return base; // default
+  }
+
+  function classifyReason(reason){
+    reason = reason.toLowerCase();
+    if(reason.includes('missing semicolon')) return {level:'warn', hint:'Add a semicolon at the end of the statement.'};
+    if(reason.includes('is not defined')) return {level:'error', hint:'Declare the variable or import it before use.'};
+    if(reason.includes('unused')) return {level:'warn', hint:'Remove the unused variable/parameter or use it.'};
+    if(reason.includes('expected') && reason.includes('===')) return {level:'warn', hint:'Use strict equality === instead of == for type-safe comparison.'};
+    if(reason.includes('eval can be harmful')) return {level:'warn', hint:'Avoid eval; use safer alternatives.'};
+    if(reason.includes('functions declared within loops referencing')) return {level:'warn', hint:'Declare functions outside loops or use let/const to capture correctly.'};
+    if(reason.includes('redefine')) return {level:'warn', hint:'Avoid redefining existing variables; use different names.'};
+    if(reason.includes('expected an assignment or function call')) return {level:'warn', hint:'This expression has no effect; remove it or use its value.'};
+    if(reason.includes('octal literals are not allowed')) return {level:'error', hint:'Don\'t use octal literals (leading 0).'};
+    return {level:'warn', hint:'Review and fix per description.'};
+  }
+
+  function renderIssues(data){
+    const {errors} = data;
+    resultsEl.innerHTML = '';
+    if(!errors || errors.length === 0){
+      statusPill.textContent = 'No issues found';
+      statusPill.className = 'pill ok';
+      statusPill.style.display = 'inline-flex';
+      resultsEl.innerHTML = '<div class="pill ok">✔ Looks good! No issues detected.</div>';
+      return;
+    }
+    statusPill.textContent = `${errors.length} issue${errors.length>1?'s':''}`;
+    statusPill.className = 'pill err';
+    statusPill.style.display = 'inline-flex';
+
+    const frag = document.createDocumentFragment();
+    errors.forEach((e, idx)=>{
+      if(!e) return;
+      const {line, character, reason, evidence} = e;
+      const cls = reason && reason.toLowerCase().includes('missing') ? 'warn' : 'error';
+      const hint = classifyReason(reason);
+
+      const div = document.createElement('div');
+      div.className = `issue ${cls === 'error' ? 'error' : ''}`;
+      div.innerHTML = `
+        <div class="title">${idx+1}. ${reason}</div>
+        <div class="loc">Line ${line}, Column ${character}</div>
+        ${evidence ? `<div class="code">${escapeHtml(evidence)}</div>`: ''}
+        <div class="muted">Suggestion: ${hint.hint}</div>
+      `;
+      frag.appendChild(div);
+    });
+    resultsEl.appendChild(frag);
+  }
+
+  function escapeHtml(str){
+    return (str||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
+  }
+
+  function analyze(){
+    statusPill.style.display = 'none';
+    resultsEl.innerHTML = '<div class="muted">Analyzing…</div>';
+    const code = codeEl.value;
+
+    const options = getOptions(presetEl.value);
+    // Reset JSHint and analyze
+    JSHINT(code, options);
+    const data = JSHINT.data();
+
+    // Additional quick suggestions (style/quality), independent of JSHint
+    const extra = [];
+    if(/\bvar\b/.test(code)) extra.push({title:'Use let/const instead of var', hint:'Block-scoped declarations reduce bugs and hoisting surprises.'});
+    if(/console\.log\(/.test(code)) extra.push({title:'Console logs in code', hint:'Remove debug logs in production or guard them.'});
+    if(/==[^=]/.test(code)) extra.push({title:'Loose equality detected (==)', hint:'Prefer strict equality (===) to avoid coercion issues.'});
+    if(/function\s+\w*\s*\(/.test(code) && /this\./.test(code) && /=>/.test(code)) extra.push({title:'Mix of function/arrow + this', hint:'Arrow functions capture this differently; double-check context.'});
+
+    renderIssues({errors: (data.errors || []).filter(Boolean)});
+
+    if(extra.length){
+      const spacer = document.createElement('div');
+      spacer.style.marginTop = '12px';
+      const head = document.createElement('div');
+      head.className = 'pill warn';
+      head.textContent = `Additional suggestions (${extra.length})`;
+      resultsEl.appendChild(spacer);
+      resultsEl.appendChild(head);
+      extra.forEach((x,i)=>{
+        const div = document.createElement('div');
+        div.className = 'issue';
+        div.innerHTML = `<div class="title">${i+1}. ${x.title}</div><div class="muted">${x.hint}</div>`;
+        resultsEl.appendChild(div);
+      });
+    }
+  }
+
+  function downloadReport(){
+    const text = resultsEl.innerText.trim() || 'No issues';
+    const blob = new Blob([text], {type:'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'code-analysis-report.txt';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  analyzeBtn.addEventListener('click', analyze);
+  downloadBtn.addEventListener('click', downloadReport);
+
+  // Optional: analyze on Ctrl+Enter
+  document.addEventListener('keydown', (e)=>{
+    if((e.ctrlKey || e.metaKey) && e.key === 'Enter') analyze();
+  });
+</script>
+</body>
+</html>

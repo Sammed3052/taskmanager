@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simple Code Analyzer (Python)</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#0f172a; color:#e5e7eb; margin:0; padding:0; }
+    .container { max-width: 1100px; margin:40px auto; padding:0 16px; }
+    h1 { font-size:1.6rem; margin-bottom: 0.5rem; }
+    .sub { color:#94a3b8; margin-bottom: 1rem; }
+    textarea { width:100%; min-height:300px; background:#0a1020; color:#e2e8f0; border:1px solid #1f2937; border-radius:8px; padding:12px; font-family:monospace; font-size:14px; }
+    button { background:#22d3ee; color:#021522; padding:10px 14px; border:none; border-radius:8px; cursor:pointer; font-weight:bold; }
+    button:hover { background:#0ea5e9; }
+    .results { margin-top:20px; padding:12px; background:#111827; border-radius:8px; border:1px solid #1f2937; min-height:100px; }
+    .error { color:#ef4444; margin-bottom:10px; }
+    .ok { color:#10b981; }
+  </style>
+  <!-- Load Skulpt for Python execution -->
+  <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt-stdlib.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Simple Code Analyzer</h1>
+    <div class="sub">Paste <strong>Python</strong> code, click Analyze, and see <em>errors or suggestions</em>.</div>
+
+    <textarea id="code" placeholder="# Example Python code\ndef add(a, b):\n    return a + b\n\nprint(add(2,3))"></textarea>
+    <br><br>
+    <button onclick="analyze()">Analyze Code</button>
+
+    <div class="results" id="results">Results will appear here…</div>
+  </div>
+
+<script>
+function builtinRead(x) {
+  if (Sk.builtinFiles === undefined || Sk.builtinFiles["files"][x] === undefined)
+      throw "File not found: '" + x + "'";
+  return Sk.builtinFiles["files"][x];
+}
+
+function analyze() {
+  const code = document.getElementById("code").value;
+  const resultsEl = document.getElementById("results");
+  resultsEl.innerHTML = "Analyzing…";
+
+  Sk.configure({output:()=>{}, read:builtinRead});
+
+  (Sk.misceval.asyncToPromise(()=>Sk.importMainWithBody("<stdin>", false, code, true)))
+    .then(()=>{
+      resultsEl.innerHTML = '<div class="ok">✔ No syntax/runtime errors detected.</div>';
+      if(/print\s*\(\)/.test(code) === false){
+        resultsEl.innerHTML += '<div class="error">⚠ Suggestion: No print statements found. Did you forget to output something?</div>';
+      }
+      if(/==/.test(code) && !/===/.test(code)){
+        resultsEl.innerHTML += '<div class="error">⚠ Suggestion: Consider using more explicit comparisons or type checks.</div>';
+      }
+    })
+    .catch((err)=>{
+      resultsEl.innerHTML = '<div class="error">❌ Error: ' + err.toString() + '</div>';
+    });
+}
+</script>
+</body>
+</html>
